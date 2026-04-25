@@ -97,49 +97,158 @@ class XiaohongshuBot:
             self.init_driver()
             
         try:
-            search_input = WebDriverWait(self.driver, self.wait_time).until(
-                EC.presence_of_element_located(
-                    (By.XPATH, "//input[@placeholder='搜索你感兴趣的内容']")
+            # 确保在小红书首页
+            current_url = self.driver.current_url
+            if 'xiaohongshu.com' not in current_url:
+                self.open_xiaohongshu()
+            
+            # 寻找搜索输入框（尝试多种可能的定位方式）
+            search_input = None
+            try:
+                # 尝试定位搜索输入框
+                search_input = WebDriverWait(self.driver, self.wait_time).until(
+                    EC.presence_of_element_located(
+                        (By.XPATH, "//input[@placeholder='搜索你感兴趣的内容']")
+                    )
                 )
-            )
+            except:
+                try:
+                    # 尝试其他可能的搜索框定位
+                    search_input = WebDriverWait(self.driver, self.wait_time).until(
+                        EC.presence_of_element_located(
+                            (By.XPATH, "//input[contains(@class, 'search')]")
+                        )
+                    )
+                except:
+                    print("找不到搜索输入框")
+                    return []
+            
             search_input.clear()
             search_input.send_keys(keyword)
             self.random_delay(0.5, 1)
             
-            search_btn = self.driver.find_element(
-                By.XPATH, "//button[contains(@class, 'search-btn') or .//*[name()='svg']]"
-            )
+            # 寻找搜索按钮
+            search_btn = None
+            try:
+                search_btn = self.driver.find_element(
+                    By.XPATH, "//button[contains(@class, 'search-btn') or .//*[name()='svg']]"
+                )
+            except:
+                try:
+                    # 尝试其他可能的搜索按钮定位
+                    search_btn = self.driver.find_element(
+                        By.XPATH, "//button[contains(text(), '搜索')]"
+                    )
+                except:
+                    print("找不到搜索按钮")
+                    return []
+            
             search_btn.click()
-            self.random_delay(2, 4)
+            
+            # 等待搜索结果加载
+            self.random_delay(3, 5)
+            
+            # 滚动页面加载更多结果
+            self._scroll_to_load_results()
             
             notes = self._extract_search_results()
+            print(f"提取到 {len(notes)} 条搜索结果")
             return notes
             
         except TimeoutException:
             print("搜索超时，请检查页面元素")
             return []
+        except Exception as e:
+            print(f"搜索出错: {e}")
+            return []
+            
+    def _scroll_to_load_results(self):
+        """滚动页面加载更多搜索结果"""
+        scroll_pause_time = 1.5
+        last_height = self.driver.execute_script("return document.body.scrollHeight")
+        
+        # 滚动3次，加载更多结果
+        for _ in range(3):
+            self.driver.execute_script(
+                "window.scrollTo(0, document.body.scrollHeight);"
+            )
+            time.sleep(scroll_pause_time)
+            
+            new_height = self.driver.execute_script("return document.body.scrollHeight")
+            if new_height == last_height:
+                break
+            last_height = new_height
             
     def _extract_search_results(self) -> List[Dict]:
         notes = []
         try:
-            note_cards = self.driver.find_elements(
-                By.XPATH, "//a[contains(@href, '/explore/')]"
-            )
+            # 尝试多种可能的搜索结果定位方式
+            note_cards = []
             
-            for card in note_cards[:20]:
+            # 方法1：原始方法
+            try:
+                cards1 = self.driver.find_elements(
+                    By.XPATH, "//a[contains(@href, '/explore/')]"
+                )
+                note_cards.extend(cards1)
+            except:
+                pass
+            
+            # 方法2：尝试其他可能的卡片定位
+            try:
+                cards2 = self.driver.find_elements(
+                    By.XPATH, "//div[contains(@class, 'note-item')]//a"
+                )
+                note_cards.extend(cards2)
+            except:
+                pass
+            
+            # 方法3：尝试基于数据属性的定位
+            try:
+                cards3 = self.driver.find_elements(
+                    By.XPATH, "//a[@href and @title]"
+                )
+                note_cards.extend(cards3)
+            except:
+                pass
+            
+            # 去重（基于href）
+            seen_hrefs = set()
+            unique_cards = []
+            for card in note_cards:
+                href = card.get_attribute('href')
+                if href and href not in seen_hrefs:
+                    seen_hrefs.add(href)
+                    unique_cards.append(card)
+            
+            # 提取信息
+            for card in unique_cards[:20]:
                 try:
                     title = card.get_attribute('title') or ''
                     href = card.get_attribute('href') or ''
-                    note_id = href.split('/')[-1] if href else ''
                     
-                    if title and note_id:
+                    # 从URL中提取note_id
+                    note_id = ''
+                    if '/explore/' in href:
+                        parts = href.split('/explore/')
+                        if len(parts) > 1:
+                            note_id = parts[1].split('?')[0]
+                    elif '/note/' in href:
+                        parts = href.split('/note/')
+                        if len(parts) > 1:
+                            note_id = parts[1].split('?')[0]
+                    
+                    if title and href:
                         notes.append({
                             'title': title,
                             'url': href,
                             'note_id': note_id
                         })
-                except:
+                except Exception as e:
+                    print(f"处理卡片出错: {e}")
                     continue
+            
+            print(f"成功提取 {len(notes)} 条有效结果")
                     
         except Exception as e:
             print(f"提取搜索结果出错: {e}")
