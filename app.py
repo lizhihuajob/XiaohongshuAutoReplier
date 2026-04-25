@@ -51,6 +51,11 @@ def check_login():
         })
     
     try:
+        # 确保浏览器在小红书首页，这样可以更准确地检查登录状态
+        current_url = bot.driver.current_url
+        if 'xiaohongshu.com' not in current_url:
+            bot.open_xiaohongshu()
+        
         is_logged_in = bot.check_login_status()
         return jsonify({
             'success': True,
