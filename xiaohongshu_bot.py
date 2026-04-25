@@ -46,11 +46,48 @@ class XiaohongshuBot:
         
     def check_login_status(self) -> bool:
         try:
+            # 方法1：检查是否存在登录元素（旧方法）
             login_elements = self.driver.find_elements(
                 By.XPATH, 
                 "//*[contains(text(), '登录') or contains(text(), '扫码')]"
             )
-            self.is_logged_in = len(login_elements) == 0
+            
+            # 方法2：检查是否存在登录后才有的元素，如用户头像、个人中心等
+            logged_in_elements = []
+            
+            # 尝试多种可能的登录后元素
+            try:
+                # 检查用户头像（通常在顶部导航栏）
+                user_avatar = self.driver.find_elements(
+                    By.XPATH, "//img[contains(@class, 'avatar') or contains(@src, 'avatar')]"
+                )
+                logged_in_elements.extend(user_avatar)
+            except:
+                pass
+            
+            try:
+                # 检查个人中心入口
+                profile_links = self.driver.find_elements(
+                    By.XPATH, "//a[contains(@href, '/profile/') or contains(@href, '/account/')]"
+                )
+                logged_in_elements.extend(profile_links)
+            except:
+                pass
+            
+            try:
+                # 检查消息通知（登录后才会有）
+                notifications = self.driver.find_elements(
+                    By.XPATH, "//*[contains(@class, 'notification') or contains(@class, 'message')]"
+                )
+                logged_in_elements.extend(notifications)
+            except:
+                pass
+            
+            # 综合判断：如果没有登录元素，或者存在登录后元素，则认为已登录
+            has_login_elements = len(login_elements) > 0
+            has_logged_in_elements = len(logged_in_elements) > 0
+            
+            self.is_logged_in = not has_login_elements or has_logged_in_elements
             return self.is_logged_in
         except:
             return False
